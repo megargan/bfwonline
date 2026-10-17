@@ -1,0 +1,12 @@
+FROM node:24-bookworm-slim AS build
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+WORKDIR /workspace
+RUN corepack enable
+COPY . .
+RUN pnpm install --frozen-lockfile && pnpm --filter @bfw/web run build-only
+
+FROM caddy:2.11.7-alpine
+COPY --from=build /workspace/apps/web/dist /srv
+COPY Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80 443 443/udp

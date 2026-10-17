@@ -1,0 +1,27 @@
+{
+  "name": "bfw-website",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @bfw/web dev",
+    "build": "pnpm --filter @bfw/web build",
+    "test:card-effects": "node --experimental-strip-types --test apps/web/src/card-effects.test.mjs",
+    "test:game-core": "node --experimental-strip-types --test packages/game-core/src/*.test.mjs",
+    "test:contracts": "node --experimental-strip-types --test packages/contracts/src/*.test.mjs",
+    "test:server": "node --experimental-strip-types --test apps/server/test/*.test.mjs",
+    "test:online-snapshot": "node --experimental-strip-types --test apps/web/src/online-snapshot.test.mjs",
+    "test:local-combat": "node --experimental-strip-types --test apps/web/src/local-attack-resolution.test.mjs",
+    "test:workspace": "node --test scripts/workspace-layout.test.mjs",
+    "preview": "pnpm --filter @bfw/web preview",
+    "build-only": "pnpm --filter @bfw/web build-only",
+    "type-check": "pnpm --filter @bfw/web type-check"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  },
+  "engines": {
+    "node": "^22.18.0 || >=24.12.0"
+  }
+}

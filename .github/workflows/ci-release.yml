@@ -1,0 +1,439 @@
+name: CI and release images
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-trixie
+        env:
+          POSTGRES_DB: bfw_ci
+          POSTGRES_USER: bfw_ci
+          POSTGRES_PASSWORD: bfw_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bfw_ci -d bfw_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    concurrency:
+      group: verify-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Check database operations scripts
+        run: |
+          set -euo pipefail
+          bash -n scripts/backup-db.sh scripts/verify-backup-restore.sh scripts/deploy-production.sh docker/postgres/init/10-roles.sh
+          if bash scripts/deploy-production.sh ghcr.io/owner/repo/api:latest ghcr.io/owner/repo/web:latest ghcr.io/owner/repo/db:latest; then
+            echo 'Deployment accepted mutable image tags' >&2
+            exit 1
+          else
+            status=$?
+            [[ "$status" == 2 ]]
+          fi
+      - name: Test rules, contracts, and server
+        env:
+          BFW_TEST_DATABASE_URL: postgres://bfw_ci:bfw_ci_test_only@localhost:5432/bfw_ci
+        run: |
+          pnpm run test:workspace
+          pnpm run test:card-effects
+          pnpm run test:game-core
+          pnpm run test:contracts
+          pnpm run test:server
+          pnpm run test:online-snapshot
+          pnpm run test:local-combat
+      - name: Run production migration and catalog seed twice
+        env:
+          MIGRATION_DATABASE_URL: postgres://bfw_ci:bfw_ci_test_only@localhost:5432/bfw_ci
+        run: |
+          pnpm --filter @bfw/server run migrate
+          pnpm --filter @bfw/server run migrate
+      - name: Type-check and build web
+        run: pnpm run build
+      - name: Type-check server
+        run: pnpm --filter @bfw/server run build
+      - name: Build production images
+        run: |
+          docker build --file Dockerfile.web --tag bfw-web:ci .
+          docker build --file apps/server/Dockerfile --tag bfw-api:ci .
+          docker build --file docker/postgres/Dockerfile --tag bfw-db:ci .
+      - name: Install Chromium for independent browser contexts
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Start full Compose stack and verify persistence across restarts
+        run: |
+          set -euo pipefail
+          cat > .env <<'EOF'
+          APP_DOMAIN=localhost
+          POSTGRES_DB=bfw_compose_ci
+          POSTGRES_BOOTSTRAP_USER=bfw_bootstrap
+          POSTGRES_BOOTSTRAP_PASSWORD=ci_bootstrap_password
+          APP_DB_PASSWORD=ci_app_password
+          MIGRATION_DB_PASSWORD=ci_migration_password
+          BACKUP_DB_PASSWORD=ci_backup_password
+          DB_IMAGE=bfw-db:ci
+          API_IMAGE=bfw-api:ci
+          WEB_IMAGE=bfw-web:ci
+          EOF
+          compose=(docker compose --env-file .env -f compose.yml -f compose.dev.yml)
+          backup_dir=''
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if [[ "$status" != 0 ]]; then "${compose[@]}" logs --no-color || true; fi
+            "${compose[@]}" down --volumes --remove-orphans || true
+            rm -f .env .ci-session.env
+            if [[ -n "$backup_dir" ]]; then rm -rf -- "$backup_dir"; fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          "${compose[@]}" up -d --no-build --wait
+          node --experimental-strip-types --input-type=module <<'NODE'
+          import { appendFile, writeFile } from 'node:fs/promises'
+          import { randomUUID } from 'node:crypto'
+          import { createRequire } from 'node:module'
+          import { cardCatalog } from './packages/game-data/src/index.ts'
+          import { randomLegalDeck } from './packages/game-core/src/deck.ts'
+          const require = createRequire(`${process.cwd()}/apps/server/package.json`)
+          const sharp = require('sharp')
+          const WebSocket = createRequire(require.resolve('@fastify/websocket'))('ws')
+          const origin = 'http://localhost:8080'
+          const httpOrigin = 'http://127.0.0.1:8080'
+          async function registerUser(username) {
+            const response = await fetch(`${httpOrigin}/api/v1/auth/register`, {
+              method: 'POST',
+              headers: { Origin: origin, 'content-type': 'application/json' },
+              body: JSON.stringify({ username, password: 'Compose-CI-password-42' }),
+            })
+            const result = await response.json()
+            const cookie = response.headers.get('set-cookie')?.split(';', 1)[0]
+            if (!response.ok || !cookie) throw new Error(`Compose registration failed: ${response.status} ${JSON.stringify(result)}`)
+            return { id: result.user.id, cookie, csrfToken: result.csrfToken }
+          }
+          async function request(user, path, method = 'GET', body) {
+            const response = await fetch(`${httpOrigin}${path}`, {
+              method,
+              headers: {
+                Origin: origin,
+                ...(user ? { Cookie: user.cookie, 'x-csrf-token': user.csrfToken } : {}),
+                ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+              },
+              ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            })
+            const result = response.status === 204 ? null : await response.json()
+            if (!response.ok) throw new Error(`Compose ${method} ${path} failed: ${response.status} ${JSON.stringify(result)}`)
+            return result
+          }
+          async function createDeck(user, name, ids) {
+            const counts = new Map()
+            for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1)
+            return request(user, '/api/v1/decks', 'POST', { name, cards: [...counts].map(([cardId, quantity]) => ({ cardId, quantity })) })
+          }
+          function inbox(socket) {
+            const pending = [], waiters = []
+            socket.on('message', raw => {
+              const packet = JSON.parse(raw.toString())
+              const index = waiters.findIndex(waiter => waiter.predicate(packet))
+              if (index < 0) { pending.push(packet); return }
+              const [waiter] = waiters.splice(index, 1)
+              clearTimeout(waiter.timer)
+              waiter.resolve(packet)
+            })
+            return { next(predicate) {
+              const index = pending.findIndex(predicate)
+              if (index >= 0) return Promise.resolve(pending.splice(index, 1)[0])
+              return new Promise((resolve, reject) => {
+                const waiter = { predicate, resolve, timer: setTimeout(() => reject(new Error('Timed out waiting for Compose WebSocket packet')), 10000) }
+                waiters.push(waiter)
+              })
+            } }
+          }
+          async function connect(user) {
+            const socket = new WebSocket('ws://127.0.0.1:8080/ws', { headers: { Origin: origin, Cookie: user.cookie } })
+            socket.on('error', error => console.error('Compose WebSocket error:', error.message))
+            const messages = inbox(socket)
+            await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error('Timed out opening Compose WebSocket')), 10000)
+              socket.once('open', () => { clearTimeout(timer); resolve() })
+              socket.once('error', error => { clearTimeout(timer); reject(error) })
+            })
+            await messages.next(packet => packet.type === 'session.ready')
+            const ack = messages.next(packet => packet.type === 'session.hello.ack')
+            socket.send(JSON.stringify({ type: 'session.hello', payload: { protocolVersion: 1 } }))
+            await ack
+            return { socket, messages }
+          }
+          const owner = await registerUser(`ci${process.env.GITHUB_RUN_ID}`)
+          const guest = await registerUser(`cj${process.env.GITHUB_RUN_ID}`)
+          const ids = randomLegalDeck(cardCatalog)
+          if (!ids) throw new Error('Compose smoke could not create a legal recovery deck')
+          const ownerDeck = await createDeck(owner, 'CI recovery deck', ids)
+          const guestDeck = await createDeck(guest, 'CI guest deck', ids)
+          const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#336699' } }).png().toBuffer()
+          const form = new FormData()
+          form.append('file', new Blob([image], { type: 'image/png' }), 'ci-avatar.png')
+          const avatar = await fetch('http://127.0.0.1:8080/api/v1/me/avatar', {
+            method: 'PUT',
+            headers: { Origin: origin, Cookie: owner.cookie, 'x-csrf-token': owner.csrfToken },
+            body: form,
+          })
+          if (!avatar.ok) throw new Error(`Compose avatar upload failed: ${avatar.status} ${await avatar.text()}`)
+          const ownerClient = await connect(owner)
+          const guestClient = await connect(guest)
+          const room = await request(owner, '/api/v1/rooms', 'POST', {})
+          await request(guest, '/api/v1/rooms/join', 'POST', { code: room.code })
+          const ownerSelection = await request(owner, `/api/v1/rooms/${room.id}/selection`, 'PUT', { deckId: ownerDeck.id })
+          const guestSelection = await request(guest, `/api/v1/rooms/${room.id}/selection`, 'PUT', { deckId: guestDeck.id })
+          await request(owner, `/api/v1/rooms/${room.id}/ready`, 'PUT', { ready: true, deckRevision: ownerSelection.myDeckRevision })
+          await request(guest, `/api/v1/rooms/${room.id}/ready`, 'PUT', { ready: true, deckRevision: guestSelection.myDeckRevision })
+          const started = await request(owner, `/api/v1/rooms/${room.id}/start`, 'POST', {})
+          const snapshots = await Promise.all([ownerClient, guestClient].map(async client => {
+            await client.messages.next(packet => packet.type === 'match.started' && packet.matchId === started.matchId)
+            return client.messages.next(packet => packet.type === 'match.snapshot' && packet.matchId === started.matchId)
+          }))
+          if (snapshots.some(packet => packet.payload.private.hand.length !== 4 || packet.payload.public.players.some(player => 'hand' in player || 'deck' in player))) {
+            throw new Error('Compose match snapshots exposed a private hand or had an unexpected opening hand size')
+          }
+          const concede = { type: 'game.command', payload: { matchId: started.matchId, commandId: randomUUID(), expectedVersion: 0, action: 'match.concede', data: {} } }
+          const ack = guestClient.messages.next(packet => packet.type === 'command.ack' && packet.payload.commandId === concede.payload.commandId)
+          const ended = ownerClient.messages.next(packet => packet.type === 'match.ended' && packet.matchId === started.matchId)
+          guestClient.socket.send(JSON.stringify(concede))
+          await Promise.all([ack, ended])
+          ownerClient.socket.terminate()
+          guestClient.socket.terminate()
+          await writeFile('.ci-session.env', `BFW_CI_COOKIE=${owner.cookie}\nBFW_CI_USER_ID=${owner.id}\n`, { mode: 0o600 })
+          await appendFile(process.env.GITHUB_ENV, `BFW_CI_COOKIE=${owner.cookie}\nBFW_CI_USER_ID=${owner.id}\n`)
+          NODE
+          node scripts/online-browser-smoke.mjs
+          "${compose[@]}" restart db
+          "${compose[@]}" up -d --no-deps --wait db
+          "${compose[@]}" run --rm migrate
+          "${compose[@]}" restart api
+          "${compose[@]}" up -d --no-deps --wait api
+          source .ci-session.env
+          BFW_CI_COOKIE="$BFW_CI_COOKIE" BFW_CI_USER_ID="$BFW_CI_USER_ID" node --input-type=module <<'NODE'
+          const response = await fetch('http://127.0.0.1:8080/api/v1/me', {
+            headers: { Cookie: process.env.BFW_CI_COOKIE },
+          })
+          const result = await response.json()
+          if (!response.ok || result.user?.id !== process.env.BFW_CI_USER_ID || !result.user.avatarUrl) {
+            throw new Error(`Profile/session did not survive database and API restarts: ${response.status}`)
+          }
+          const avatar = await fetch(`http://127.0.0.1:8080${result.user.avatarUrl}`)
+          if (!avatar.ok || avatar.headers.get('content-type') !== 'image/webp') {
+            throw new Error(`Processed avatar did not survive database and API restarts: ${avatar.status}`)
+          }
+          NODE
+          backup_dir="$(mktemp -d "$RUNNER_TEMP/bfw-backup.XXXXXX")"
+          bash scripts/backup-db.sh "$backup_dir"
+          backup_file="$(find "$backup_dir" -maxdepth 1 -type f -name 'bfw-*.dump' -print -quit)"
+          test -n "$backup_file"
+          bash scripts/verify-backup-restore.sh "$backup_file"
+
+  publish:
+    needs: verify
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api-digest: ${{ steps.build-api.outputs.digest }}
+      web-digest: ${{ steps.build-web.outputs.digest }}
+      db-digest: ${{ steps.build-db.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: API image metadata
+        id: meta-api
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}/api
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and publish API image
+        id: build-api
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+      - name: Web image metadata
+        id: meta-web
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}/web
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and publish web image
+        id: build-web
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.web
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+      - name: Database image metadata
+        id: meta-db
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}/db
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and publish database image
+        id: build-db
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/postgres/Dockerfile
+          build-args: POSTGRES_IMAGE=postgres:18.6-trixie
+          push: true
+          tags: ${{ steps.meta-db.outputs.tags }}
+          labels: ${{ steps.meta-db.outputs.labels }}
+          cache-from: type=gha,scope=db
+          cache-to: type=gha,mode=max,scope=db
+
+  deploy-production:
+    needs: [verify, publish]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - name: Reject stale production runs
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/master
+          [[ "$(git rev-parse FETCH_HEAD)" == "$GITHUB_SHA" ]]
+      - name: Prepare pinned SSH access
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]]
+          deploy_port="${DEPLOY_PORT:-22}"
+          [[ "$deploy_port" =~ ^[0-9]{1,5}$ ]]
+          (( 10#$deploy_port >= 1 && 10#$deploy_port <= 65535 ))
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          install -m 700 -d "$RUNNER_TEMP/bfw-ssh"
+          printf '%s' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/bfw-ssh/id"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/bfw-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/bfw-ssh/id" "$RUNNER_TEMP/bfw-ssh/known_hosts"
+          echo "DEPLOY_TARGET=$DEPLOY_USER@$DEPLOY_HOST" >> "$GITHUB_ENV"
+          echo "DEPLOY_PORT=$deploy_port" >> "$GITHUB_ENV"
+          echo "SSH_ID=$RUNNER_TEMP/bfw-ssh/id" >> "$GITHUB_ENV"
+          echo "SSH_KNOWN_HOSTS=$RUNNER_TEMP/bfw-ssh/known_hosts" >> "$GITHUB_ENV"
+      - name: Transfer and deploy immutable image digests
+        env:
+          API_DIGEST: ${{ needs.publish.outputs.api-digest }}
+          WEB_DIGEST: ${{ needs.publish.outputs.web-digest }}
+          DB_DIGEST: ${{ needs.publish.outputs.db-digest }}
+          GHCR_DEPLOY_USER: ${{ secrets.GHCR_DEPLOY_USER }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$API_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$WEB_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$DB_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          test -n "$GHCR_DEPLOY_USER"
+          test -n "$GHCR_READ_TOKEN"
+          image_repo="${GITHUB_REPOSITORY,,}"
+          release_dir="/srv/bfw/releases/$GITHUB_SHA"
+          api_image="ghcr.io/$image_repo/api@$API_DIGEST"
+          web_image="ghcr.io/$image_repo/web@$WEB_DIGEST"
+          db_image="ghcr.io/$image_repo/db@$DB_DIGEST"
+          ssh_options=(-i "$SSH_ID" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$SSH_KNOWN_HOSTS" -o ConnectTimeout=15)
+          ssh -p "$DEPLOY_PORT" "${ssh_options[@]}" "$DEPLOY_TARGET" "install -d -m 700 '$release_dir/scripts'"
+          scp -P "$DEPLOY_PORT" "${ssh_options[@]}" compose.yml compose.iis.yml scripts/deploy-production.sh "$DEPLOY_TARGET:$release_dir/"
+          scp -P "$DEPLOY_PORT" "${ssh_options[@]}" scripts/backup-db.sh "$DEPLOY_TARGET:$release_dir/scripts/"
+          printf '%s\n%s\n' "$GHCR_DEPLOY_USER" "$GHCR_READ_TOKEN" | ssh -p "$DEPLOY_PORT" "${ssh_options[@]}" "$DEPLOY_TARGET" "bash '$release_dir/deploy-production.sh' '$api_image' '$web_image' '$db_image'"
+
+  release:
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release with immutable image references
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_DIGEST: ${{ needs.publish.outputs.api-digest }}
+          WEB_DIGEST: ${{ needs.publish.outputs.web-digest }}
+          DB_DIGEST: ${{ needs.publish.outputs.db-digest }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          cat > release-notes.md <<EOF
+          Source commit: $GITHUB_SHA
+
+          Deploy these immutable container references:
+          - API: ghcr.io/$GITHUB_REPOSITORY/api@$API_DIGEST
+          - Web: ghcr.io/$GITHUB_REPOSITORY/web@$WEB_DIGEST
+          - Database bootstrap: ghcr.io/$GITHUB_REPOSITORY/db@$DB_DIGEST
+          EOF
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --notes-file release-notes.md
+          else
+            gh release create "$tag" --verify-tag --title "$tag" --notes-file release-notes.md
+          fi

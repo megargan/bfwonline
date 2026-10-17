@@ -1,0 +1,34 @@
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	handle /api/v1/me/avatar {
+		request_body {
+			max_size 6MB
+		}
+		reverse_proxy api:3000
+	}
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle /ws {
+		reverse_proxy api:3000
+	}
+
+	handle /cards/* {
+		root * /srv
+		file_server
+	}
+
+	handle /assets/* {
+		root * /srv
+		file_server
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

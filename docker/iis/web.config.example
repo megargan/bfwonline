@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copy to the NEW BFW IIS site only; replace VM_PRIVATE_IP with the Ubuntu VM's private IPv4. -->
+<configuration>
+  <system.webServer>
+    <webSocket enabled="true" />
+    <rewrite>
+      <rules>
+        <rule name="BFW reverse proxy" stopProcessing="true">
+          <match url="(.*)" />
+          <conditions>
+            <add input="{HTTP_HOST}" pattern="^bfwonline\.mrazrust\.ru(?::\d+)?$" />
+          </conditions>
+          <action type="Rewrite" url="http://VM_PRIVATE_IP:8080/{R:1}" appendQueryString="true" />
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>

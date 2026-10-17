@@ -1,0 +1,82 @@
+name: bfw
+
+services:
+  db:
+    image: ${DB_IMAGE:?Set DB_IMAGE to the PostgreSQL image reference}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bfw}
+      POSTGRES_USER: ${POSTGRES_BOOTSTRAP_USER:-bfw_bootstrap}
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:?Set POSTGRES_BOOTSTRAP_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD}
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?Set BACKUP_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    mem_limit: 1g
+
+  migrate:
+    image: ${API_IMAGE:?Set API_IMAGE to the API image reference}
+    command: ["node", "--experimental-strip-types", "apps/server/src/migrate-main.ts"]
+    restart: "no"
+    environment:
+      MIGRATION_DATABASE_URL: postgres://bfw_migrator:${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD}@db:5432/${POSTGRES_DB:-bfw}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: ${API_IMAGE:?Set API_IMAGE to the API image reference}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN}
+      DATABASE_URL: postgres://bfw_app:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD}@db:5432/${POSTGRES_DB:-bfw}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+      start_period: 20s
+    mem_limit: 768m
+    cpus: 1.0
+    stop_grace_period: 30s
+
+  web:
+    image: ${WEB_IMAGE:?Set WEB_IMAGE to the web image reference}
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 15s
+      timeout: 4s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

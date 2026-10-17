@@ -1,0 +1,126 @@
+/* One palette for the poster, the card collection and the playing table. */
+:root {
+  --theme-bg: #191b24;
+  --theme-surface: #252833;
+  --theme-raised: #323644;
+  --theme-hover: #414654;
+  --theme-border: #565c70;
+  --theme-ink: #f7f2e9;
+  --theme-muted: #b8bac8;
+  --theme-accent: #91e5c4;
+  --theme-accent-strong: #54c993;
+  --theme-accent-muted: #78c2a1;
+  --theme-accent-light: #c8f4df;
+  --theme-accent-gradient: linear-gradient(135deg, #91e5c4 0%, #54c993 100%);
+  --theme-mint: var(--theme-accent);
+  --theme-berry: #ff8394;
+  --theme-blue: #a4c4ff;
+  --theme-ink-on-color: #20232d;
+  --arcade-ink: var(--theme-bg);
+  --arcade-cyan: var(--theme-blue);
+  --arcade-coral: var(--theme-berry);
+  --arcade-lime: var(--theme-mint);
+  color: var(--theme-ink);
+  background: var(--theme-bg);
+  color-scheme: dark;
+}
+body,#app,.app-shell,.game,.wiki,.deck-builder,.handoff { background: var(--theme-bg); }
+::selection { background: var(--theme-accent); color: var(--theme-ink-on-color); }
+button,input,select { accent-color: var(--theme-accent); }
+button { transition: background-color .18s ease, border-color .18s ease, transform .18s ease; }
+button:active:not(:disabled) { translate: 0 1px; }
+button:focus-visible,[tabindex="0"]:focus-visible,input:focus-visible,select:focus-visible {
+  outline: 3px solid var(--theme-accent); outline-offset: 4px;
+}
+.eyebrow,.axis,.deck-message,.deck-status b,.deck-card em,.stats { color: var(--theme-accent); }
+.lead,.back,.rules-note,.mode-card span,.handoff-card p:not(.eyebrow),.winner p:not(.eyebrow),
+.player-chip small,.game .log,.deck-header p:not(.eyebrow),.deck-status,.deck-list-title span,.catalog-count,
+.deck-card small,.catalog-card small,.wiki-header>div>p:last-child,.wiki-card small,.wiki-modal-cost,
+.deck-description,.wiki-description,.card-inspector p:not(.eyebrow),.wiki-modal-description { color: var(--theme-muted); }
+.primary,.game .end-turn,.warning-primary {
+  color: var(--theme-ink-on-color); background: var(--theme-accent-gradient); border-color: var(--theme-accent); box-shadow: none;
+}
+.primary:hover,.game .end-turn:hover,.warning-primary:hover { background: var(--theme-accent-strong); border-color: var(--theme-accent-strong); box-shadow: none; }
+.primary:disabled,.warning-primary:disabled { background: var(--theme-raised); color: var(--theme-muted); border-color: var(--theme-border); }
+.wiki-link,.handoff-card strong,.winner h2,.stats span { color: var(--theme-mint); }
+.mode-card,.mode-card.active,.handoff-card,.wiki-card,.deck-list,.card-catalog,.catalog-card,
+.wiki-modal,.deck-inspector,.card-inspector,.game .action-panel,.turn-warning {
+  background: var(--theme-surface); color: var(--theme-ink); border-color: var(--theme-border);
+}
+.mode-card.active { background: #233c38; border-color: #527a70; }
+.mode-card.active:hover { background: #2f4c44; outline-color: var(--theme-mint); }
+.mode-card i,.mode-card.disabled i { color: var(--theme-mint); }
+.handoff-card { box-shadow: 0 24px 70px #0004; }
+.deck-header,.wiki-header { border-color: var(--theme-border); }
+.catalog-card:hover,.wiki-card:hover { background: var(--theme-raised); border-color: var(--theme-accent); }
+.deck-card,.deck-status span,.game .player-chip,.game .resources span,.game .log,.game .saved-pile {
+  background: var(--theme-surface); border-color: var(--theme-border);
+}
+.deck-card:hover { background: var(--theme-raised); }
+.deck-card b { color: var(--theme-ink); }
+.deck-status .ready { color: var(--theme-mint); border-color: #658e81; background: #233c38; }
+.catalog-controls input,.catalog-controls select,.wiki-filters input,.wiki-filters select,.turn-warning input,
+.random-deck,.warning-secondary,.warning-cancel,.discard-bar button,.actions button,.game .action-panel button {
+  background: var(--theme-raised); color: var(--theme-ink); border-color: var(--theme-border);
+}
+.random-deck:hover,.warning-secondary:hover,.warning-cancel:hover:not(:disabled),.game .action-panel button:hover {
+  background: var(--theme-hover); border-color: var(--theme-blue);
+}
+.reset-deck,.deck-card button { background: #482c38; color: #ffc0ca; border-color: #965c70; }
+.reset-deck:hover { background: #623647; }
+.deck-trash { background: #362733; color: #ffc0ca; border-color: #966779; }
+.deck-trash.dragging { background: #623647; border-color: var(--theme-berry); color: var(--theme-ink); }
+.drop-hint { color: var(--theme-muted); border-color: var(--theme-border); }
+.deck-list.dragging { background: #343e3d; border-color: var(--theme-mint); box-shadow: inset 0 0 0 2px var(--theme-mint); }
+.catalog-card span,.game .cost { background: #3c568d; color: #fff; border-color: var(--theme-blue); }
+.catalog-card em { background: var(--theme-accent); color: var(--theme-ink-on-color); }
+.development-tag { background: #18372c; border-color: #417359; color: var(--theme-accent-muted); }
+.development-tag.ready {background:#243f35;border-color:#527d69;color:var(--theme-mint)}
+.wiki-modal,.deck-inspector,.card-inspector,.turn-warning { box-shadow: 0 24px 70px #080910aa; }
+.wiki-modal>img,.wiki-card>img,.catalog-card img,.deck-card img,.deck-inspector>img { background: var(--theme-bg); }
+.game .player-chip { box-shadow: none; }
+.game .player-chip b { color: var(--theme-mint); }
+.game .player-chip.opponent b { color: var(--theme-berry); }
+.game .round { background: #18372c; border-color: #417359; }
+.game .round span { color: var(--theme-accent-muted); }
+.game .round b { color: var(--theme-accent); text-shadow: none; }
+.game .resources { color: var(--theme-ink); }
+.game .resources span:nth-child(1) { background: #2d354b; color: #cadbff; border-color: #64779d; }
+.game .resources span:nth-child(2) { background: #233c38; color: #b1f4da; border-color: #567f72; }
+.battlefield { background: #242833; border-color: #72778d; box-shadow: 0 16px 40px #08091055; }
+.battlefield:before { background: none; }
+.slot { background: #303747; border-color: #576279; }
+.slot:nth-child(odd) { background: #2c3342; }
+.slot.home { background: #28463d; border-color: #629780; }
+.slot.enemy { background: #4b2d3b; border-color: #a36178; }
+.slot:hover { border-color: var(--theme-accent); box-shadow: inset 0 0 0 1px var(--theme-accent); }
+.slot.selected { outline-color: var(--theme-blue); box-shadow: 0 0 0 3px #a4c4ff44; }
+.slot.valid-target { border-color: var(--theme-mint); box-shadow: inset 0 0 0 2px var(--theme-mint); animation-name: theme-target-pulse; }
+.slot.valid-target:after { background: #91e5c412; }
+.slot.valid-target:hover { border-color: #c6ffe5; box-shadow: inset 0 0 0 2px #c6ffe5; }
+.hp { background: #cb435d; border-color: #ffb7c2; }
+.freeze-turns { background: #3c568d; border-color: var(--theme-blue); }
+.game .hand-title span,.action-panel b { color: var(--theme-accent); }
+.game .hand-card { border-color: var(--theme-border); background: var(--theme-surface); }
+.game .hand-card:hover,.game .hand-card.selected { border-color: var(--theme-accent); box-shadow: 0 0 0 2px #91e5c455,0 10px 28px #08091099; }
+.game .toast { background: var(--theme-accent); border-color: var(--theme-accent-light); color: var(--theme-ink-on-color); box-shadow: 0 8px 24px #08091066; }
+.game .log { border-left-color: var(--theme-accent); }
+.game .log b,.hand-title b { color: var(--theme-ink); }
+.game .action-panel:before { background: var(--theme-surface); border-color: var(--theme-border); }
+.action-panel span { color: var(--theme-muted); }
+.discard-bar { background: #49303b; border-color: #a36579; color: var(--theme-ink); }
+.warning-icon { background: #18372c; color: var(--theme-accent); border-color: var(--theme-accent); box-shadow: none; }
+.turn-warning>p:not(.eyebrow) { color: var(--theme-muted); }
+.game { -webkit-user-select: none; user-select: none; }
+.turn-warning.choosing { border-color: var(--theme-berry); }
+.turn-warning-backdrop,.wiki-modal-backdrop { background: #10121cd9; }
+.discard-counter { color: #ffc0ca; }
+.shield { color: var(--theme-blue); }
+.fx-play i,.fx-buff i { background: var(--theme-mint); }
+.fx-attack i { background: var(--theme-berry); }
+.fx-move i,.fx-freeze i { background: var(--theme-blue); }
+.fx-spell i,.fx-death i { background: var(--theme-accent); }
+.battle-flash.fx-spell { background: radial-gradient(ellipse at center,#91e5c433,transparent 63%); }
+.battle-flash.fx-buff { background: radial-gradient(ellipse at center,#91e5c426,transparent 65%); }
+@keyframes theme-target-pulse { 50% { box-shadow: inset 0 0 0 2px #c6ffe5,inset 0 0 24px #91e5c444; } }
+

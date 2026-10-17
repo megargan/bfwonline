@@ -1,0 +1,7 @@
+# Production behind IIS: HTTPS terminates on Windows, HTTP stays on the VM's private interface.
+services:
+  web:
+    environment:
+      APP_DOMAIN: ":80"
+    ports: !override
+      - "${BFW_PROXY_BIND:?Set BFW_PROXY_BIND to the private VM IPv4 address}:8080:80"

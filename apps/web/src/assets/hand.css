@@ -1,0 +1,156 @@
+.game .hand-wrap {
+ --hand-card-width:120px;
+ --hand-card-height:160px;
+ --hand-hide:80px;
+ --hand-reveal:-96px;
+ position:fixed;right:28px;bottom:calc(-1 * var(--hand-hide));left:auto;
+ width:max-content;max-width:none;margin:0;z-index:12;
+}
+.game .hand {
+ --hand-step:min(76px,calc(max(0px,100vw - 452px) / max(1,var(--hand-count) - 3)));
+ display:flex;flex-direction:row;align-items:end;gap:0;
+ width:max-content;min-height:var(--hand-card-height);padding:0;margin:0;overflow:visible;
+}
+.game .hand-card {
+ touch-action:none;
+ --hand-scale:1;--hand-lift:0px;
+ width:var(--hand-card-width);min-width:var(--hand-card-width);height:var(--hand-card-height);
+ flex:0 0 var(--hand-card-width);margin:0;z-index:calc(100 - var(--hand-order));
+ overflow:visible;
+ transform:translateY(var(--hand-lift)) scale(var(--hand-scale));transform-origin:center bottom;
+ transition:transform .28s cubic-bezier(.2,.8,.2,1),margin-left .28s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;
+}
+.game .hand-card::after {
+ content:'';position:absolute;left:0;right:0;top:100%;height:30%;
+}
+.game .hand-card img {border-radius:inherit}
+.game .hand-card + .hand-card {margin-left:calc(var(--hand-step) - var(--hand-card-width))}
+.game .hand-card:is(:hover,:focus-visible,.selected) {
+ --hand-scale:1.3;--hand-lift:var(--hand-reveal);
+ margin-left:calc(var(--hand-card-width) * .15);z-index:200;
+}
+.game .hand-card:is(:hover,:focus-visible,.selected) + .hand-card {margin-left:calc(var(--hand-card-width) * .15)}
+.game .hand-title {
+ position:absolute;right:0;bottom:calc(100% + var(--hand-card-height));
+ width:min(360px,calc(100vw - 40px));margin:0;z-index:201;pointer-events:none;
+}
+.game .hand-title .end-turn {pointer-events:auto}
+.game .hand-card.drawn-card {--draw-rise:-60px}
+.game .hand-wrap.warning-discard-mode {bottom:12px}
+.game .hand-wrap.warning-discard-mode .hand-card {--hand-reveal:-16px}
+.game .hand-card.warning-discard {--hand-scale:1.3;--hand-lift:-16px;z-index:200}
+@media(max-width:780px) {
+ .game .hand-wrap {--hand-card-width:90px;--hand-card-height:120px;--hand-hide:60px;--hand-reveal:-76px;right:24px}
+ .game .hand {--hand-step:min(56px,calc(max(0px,100vw - 345px) / max(1,var(--hand-count) - 3)))}
+ .game .hand-title {bottom:calc(100% + var(--hand-card-height));width:min(300px,calc(100vw - 40px))}
+ .game .hand-wrap.warning-discard-mode {left:auto;right:24px}
+ .game .hand-card.drawn-card {--draw-rise:-30px}
+}
+@media(prefers-reduced-motion:reduce) {.game .hand-card {transition-duration:.01ms}}
+.game .card-inspector.hand-description {
+ right:auto;bottom:auto;width:var(--description-width);height:166.4px;
+ padding:16px;display:flex;pointer-events:auto;border-radius:12px 0 0 12px;
+ background:#151720;border:1px solid #383d4c;border-left:3px solid var(--theme-accent-muted);
+ box-shadow:-8px 0 20px var(--theme-accent-muted)20;
+ transform:translate(-100%,-50%);
+ animation:hand-description-out .28s cubic-bezier(.2,.8,.2,1);
+}
+.game .hand-description>div {display:flex;flex-direction:column;width:100%;min-height:0}
+.game .hand-description h3 {margin:0;font-size:1.1rem;line-height:1.2;overflow-wrap:anywhere;max-height:none;overflow:visible;flex-shrink:0}
+.game .hand-description .eyebrow,.game .hand-description .stats {flex-shrink:0}
+.game .stats .inspector-cost {color:#f4de63}
+.game .card-inspector .stats {display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.game .card-inspector .stats span {margin-left:0;white-space:nowrap}
+.game .card-inspector .stats .inspector-attack {color:var(--theme-accent)}
+.game .hand-description p:not(.eyebrow) {font-size:.85rem;line-height:1.55;max-height:none;min-height:0;flex:1;overflow:hidden;overflow-wrap:anywhere;white-space:normal}
+.game .card-inspector.hand-description.measuring {visibility:hidden;animation:none}
+.game .card-inspector.hand-description.full-text {height:auto;min-height:166.4px}
+@keyframes hand-description-out {
+ from {opacity:0;clip-path:inset(0 0 0 100%);transform:translate(-100%,-50%)}
+ to {opacity:1;clip-path:inset(0);transform:translate(-100%,-50%)}
+}
+@media(max-width:780px) {.game .card-inspector.hand-description {height:124.8px;padding:10px}}
+@media(max-width:780px) {.game .card-inspector.hand-description.full-text {min-height:124.8px}}
+@media(prefers-reduced-motion:reduce) {.game .card-inspector.hand-description {animation:none}}
+
+.game .player-profile {
+ position:absolute;left:50%;bottom:-78px;transform:translateX(-50%);
+ display:flex;align-items:center;gap:12px;width:min(100%,340px);height:64px;
+ padding:10px 14px;isolation:isolate;overflow:hidden;border-radius:12px;
+ border:1px solid #ba5363;background:var(--theme-surface);text-align:left;
+ color:var(--theme-ink);box-shadow:0 8px 24px #08091055;
+}
+.game .player-profile::before {
+ content:'';position:absolute;inset:0;z-index:-1;
+ background:linear-gradient(110deg,#962b40,#bc4052);
+ transform:scaleX(var(--profile-health));transform-origin:left;
+ transition:transform .45s cubic-bezier(.2,.8,.2,1);
+}
+.game .player-profile.opponent {top:-78px;bottom:auto;text-align:left}
+.game .profile-avatar {
+ display:grid;place-items:center;flex:0 0 42px;height:42px;
+ border:1px solid #ffffff40;border-radius:9px;background:#191b2480;color:#ffe2e8;
+}
+.profile-avatar svg {width:28px;height:28px}
+.profile-identity {display:grid;gap:4px;min-width:0;flex:1}
+.profile-identity strong {font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.game .profile-identity small {color:#f4dce1;font-size:.68rem}
+.game .player-profile .profile-hp {color:#fff;font-size:1.35rem;white-space:nowrap;font-variant-numeric:tabular-nums}
+.game .player-profile.opponent .profile-hp {color:#fff}
+.profile-hp span {font-size:.9rem;color:#ffc1ce}
+.game .player-profile.targetable {padding:10px 14px;outline:2px solid var(--theme-accent);cursor:pointer}
+.game .player-profile.targetable:is(:hover,:focus-visible) {box-shadow:0 0 0 4px #91e5c433}
+.game .player-profile.attack-ready {outline:2px dashed var(--theme-accent)}
+.game .player-profile.attack-over {outline:3px solid #ff8e7e;box-shadow:0 0 0 5px #ff8e7e33,0 0 28px #ff8e7e66}
+.game .battlefield {--socket-gap:5px;display:grid;gap:var(--socket-gap)}
+.game .board-row {gap:var(--socket-gap)}
+.game .slot {touch-action:none}
+.game {height:100dvh;min-height:0;overflow:hidden}
+@media(min-width:781px) {
+ .game .battlefield-wrap {top:114px;width:min(40vw,525px,calc((100dvh - 240px)*.737))}
+}
+@media(min-width:1440px) {
+ .game .battlefield-wrap {width:min(calc(100vw - 940px),calc((100dvh - 240px)*.737))}
+}
+@media(max-width:780px) {
+ .game .game-header {height:54px;justify-content:flex-start}
+ .game .battlefield-wrap {margin-top:92px;margin-bottom:110px;width:min(100%,calc((100dvh - 400px)*.737))}
+ .game .player-profile {gap:10px;padding:10px 12px}
+ .game .hand-title>div {display:none}
+ .game .hand-title .end-turn {position:fixed;top:22px;right:12px}
+}
+@media(prefers-reduced-motion:reduce) {.game .player-profile::before {transition:none}}
+
+.game .game-sidebar {
+ position:fixed;left:clamp(16px,2.4vw,40px);top:50%;transform:translateY(-50%);
+ width:190px;display:grid;gap:14px;z-index:7;
+}
+.game .game-sidebar .game-header {height:auto;margin:0;display:block}
+.game .game-sidebar .round {position:static;width:100%;padding:14px 18px;text-align:left}
+.game .game-sidebar .round span {font-size:.75rem}
+.game .game-sidebar .round b {font-size:2.2rem}
+.game .game-sidebar .resources {
+ position:static;display:grid;grid-template-columns:1fr;gap:10px;justify-content:stretch;
+ margin:0;font-size:1rem;
+}
+.game .game-sidebar .resources span {width:100%;padding:11px 14px;font-size:1rem}
+.game .saved-pile {
+ position:fixed;top:auto;left:auto;right:28px;bottom:300px;
+ width:min(360px,calc(100vw - 40px));max-height:min(35dvh,360px);overflow:auto;
+ margin:0;padding:12px 14px;z-index:16;border:1px solid var(--theme-border);
+ border-radius:10px;background:var(--theme-surface);font-size:.9rem;
+}
+.game .saved-pile summary {font-weight:700;color:var(--theme-mint)}
+.game .saved-pile>div {display:grid;gap:8px}
+.game .saved-pile button {padding:10px 12px;text-align:left;font-size:.85rem}
+@media(max-width:780px) {
+ .game .game-sidebar {left:8px;width:90px;gap:10px}
+ .game .game-sidebar .round {padding:10px}
+ .game .game-sidebar .round span {font-size:.6rem}
+ .game .game-sidebar .round b {font-size:1.7rem}
+ .game .game-sidebar .resources {gap:8px}
+ .game .game-sidebar .resources span {padding:9px 7px;font-size:.78rem}
+ .game .battlefield-wrap {margin-left:100px;margin-top:92px;width:min(calc(100% - 100px),calc((100dvh - 400px)*.737))}
+ .game .saved-pile {right:24px;bottom:84px;width:min(280px,calc(100vw - 122px));max-height:240px}
+ .game .hand-title .end-turn {top:auto;bottom:190px}
+}
