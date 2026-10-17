@@ -1,6 +1,12 @@
 # BFW Online Implementation Status
 
-Updated 2026-10-16. The source of requirements is the attached goal objective and the technical notes under `BFW Online — Техническая документация`.
+Updated 2026-10-18. The source of requirements is the attached goal objective and the technical notes under `BFW Online — Техническая документация`.
+
+## CI/CD verification — 2026-10-18
+
+- GitHub Actions run [39077776082](https://github.com/megargan/bfwonline/actions/runs/39077776082) passed: PostgreSQL-backed tests and repeated migrations, web/server builds, all three production images, two independent browser contexts, Compose restart persistence checks, and backup/restore verification. API, web, and database images were published to GHCR.
+- The production deploy job was skipped as designed for a normal push; it requires a manual workflow dispatch and the `production` environment secrets.
+- Production is not deployed. The public HTTPS origin currently returns HTTP 525, so the new IIS site still needs a valid SNI certificate/binding before the deployment smoke check can pass. A local run skipped two PostgreSQL tests because Docker Desktop was stopped; GitHub Actions ran them successfully.
 
 ## Movement energy correction — 2026-10-16
 
