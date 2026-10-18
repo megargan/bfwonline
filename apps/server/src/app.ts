@@ -6,11 +6,11 @@ import websocket from '@fastify/websocket'
 import type { Pool } from 'pg'
 import { registerAuthRoutes } from './auth-routes.ts'
 
-export function buildApp({ pool, appOrigin = process.env.APP_ORIGIN ?? 'http://localhost:5173' }: { pool: Pool; appOrigin?: string }) {
-  const app = Fastify({ logger: true, bodyLimit: 64 * 1024 })
+export function buildApp({ pool, appOrigin = process.env.APP_ORIGIN ?? 'http://localhost:5173', trustedProxies = process.env.BFW_TRUSTED_PROXIES?.split(/\s+/).filter(Boolean) ?? [] }: { pool: Pool; appOrigin?: string; trustedProxies?: string[] }) {
+  const app = Fastify({ logger: true, bodyLimit: 64 * 1024, trustProxy: trustedProxies.length ? trustedProxies : false })
 
   app.register(cookie)
-  app.register(rateLimit, { global: false })
+  app.register(rateLimit, { global: false, errorResponseBuilder: () => ({ statusCode: 429, error: 'RATE_LIMITED' }) })
   app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } })
   app.register(websocket, { options: { maxPayload: 16 * 1024, perMessageDeflate: false } })
 
